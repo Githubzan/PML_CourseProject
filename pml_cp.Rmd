@@ -1,0 +1,131 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "Zannis Voulgaris"
+date: "March 24, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. 
+
+# Data import,cleaning and preparation
+
+## Essential packages 
+
+```{r}
+library(caret);library(randomForest);library(gbm);library(rpart);library(rpart.plot);library(rattle)
+
+```
+
+## Import
+
+```{r}
+url.train <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv" 
+url.valid <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+train.data <- read.csv(url(url.train))
+valid.data <- read.csv(url(url.valid))
+str(train.data)
+str(valid.data)
+
+```
+
+## Cleaning 
+
+The training data set consists of 19622 observations and 160 columns. We notice that a lot of columns exhibit missing values (NA or null) on the bulk of their observations. We went forward and removed them, along with the first 7 columns, which relate to participant information, holding no explanatory value.
+
+
+```{r}
+train.clean <-train.data[,!sapply(train.data,function(x) any(is.na(x)))]
+valid.clean <-valid.data[,!sapply(valid.data,function(x) any(is.na(x)))]
+train.clean <- train.clean[,-c(1:7)]
+valid.clean <- valid.clean[,-c(1:7)]
+dim(train.clean);dim(valid.clean)
+```
+
+Post-cleaning process,  training dataset contains 86 variables and validation dataset 53 variables respectively.
+
+## Data preparation for prediction purposes
+
+In order to prepare data for prediction, we created 2 distinct partitions, splitting the 'clean' training dataset into 70% sub-train data and 30% test data, of which the latter will serve for the computation of out-of-sample errors. We also remove near-zero variance variables.
+
+```{r}
+set.seed(123)
+inTrain <- createDataPartition(train.clean$classe,p=0.7,list=FALSE)
+training <- train.clean[inTrain,]
+testing <- train.clean[-inTrain,]
+flagnzv <- nearZeroVar(training)
+flagnzv
+training <- training[,-flagnzv]
+testing <- testing[,-flagnzv]
+dim(training);dim(testing)
+
+```
+
+After the removal of near-zero variance variables, train & test datasets contain 53 variables.
+
+Furthermore, we will examine 3 different classification models:
+1. Clasification Trees
+2. Random Forest 
+3. Gradient Boosting 
+
+In order to have an unbiased measurement of the out of sample accuracy of the model, we opted for a 5-fold cross validation, applicable to each model.
+
+# Prediction 
+
+## Prediction with classification trees
+
+```{r}
+treeFit <- train(classe~., data=training, method="rpart", trControl=trainControl(method="cv", number=5))
+fancyRpartPlot(treeFit$finalModel)
+pred.treeFit <- predict(treeFit,newdata=testing)
+cm.treeFit<-confusionMatrix(pred.treeFit,testing$classe)
+cm.treeFit$overall['Accuracy']
+```
+
+We notice a less than satisfactory accuracy circa 55%, which abstains the deployment of this model, as the outcome variable will not be predicted accurately by these predictors.
+
+
+## Prediction with random forest
+```{r}
+rfFit <- train(classe~., data=training, method="rf", trControl=trainControl(method="cv", number=5))
+print(rfFit)
+rfFit$finalModel
+plot(rfFit,main="Accuracy vs #predictors")
+plot(rfFit$finalModel,main="Model Error vs #trees")
+pred.rfFit <- predict(rfFit,newdata=testing)
+cm.rfFit<-confusionMatrix(pred.rfFit,testing$classe)
+cm.rfFit$overall['Accuracy']
+varImp(rfFit)
+```
+
+With random forest model, we notice an almost optimal accuracy, circa 99%. The optimal number of predictors amount to 27, as adding more predictors significantly increases model complexity without improving model accuracy. 
+
+## Prediction with gradient boosting
+```{r}
+gbmFit <- train(classe~., data=training, method="gbm", trControl=trainControl(method="cv", number=5), verbose=FALSE)
+print(gbmFit)
+gbmFit$finalModel
+plot(gbmFit)
+pred.gbmFit <- predict(gbmFit,newdata=testing)
+cm.gbmFit<-confusionMatrix(pred.gbmFit,testing$classe)
+cm.gbmFit$overall['Accuracy']
+varImp(gbmFit)
+```
+
+Boosting model precision is significant (circa 96%), however it falls short of the random forest model result, which will ultimately serve as the preferred go-to model for our final prediction. 
+
+# Final Prediction 
+```{r}
+Final.Pred <-predict(rfFit,newdata=valid.clean)
+Final.Pred
+```
+
+We used the random forest model to predict the value of 'classe', deploying the prescribed validation data set.
+
+
